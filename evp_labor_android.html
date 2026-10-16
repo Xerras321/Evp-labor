@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="de"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>EVP Labor – Audioexperiment</title>
+<style>body{background:#111827;color:#f9fafb;font:16px system-ui;margin:0;padding:22px}main{max-width:640px;margin:auto}h1{font-size:1.7rem}button{padding:14px;border:0;border-radius:10px;margin:6px 5px 6px 0;font-size:1rem}button:disabled{opacity:.4}#start{background:#a7f3d0}#stop{background:#fca5a5}#download{background:#bfdbfe}canvas{width:100%;background:#030712;border-radius:10px}small{color:#cbd5e1}#status{padding:12px;background:#374151;border-radius:10px}a{color:#93c5fd}</style></head>
+<body><main><h1>EVP Labor</h1><p>Experimenteller Audiorekorder für Android. Keine künstlichen Stimmen, kein nachgewiesener Jenseitskontakt.</p>
+<p id="status">Bereit. Für das Mikrofon muss die Seite über HTTPS geöffnet werden.</p>
+<button id="start">● Aufnahme starten</button><button id="stop" disabled>■ Stoppen</button>
+<div><canvas id="scope" width="600" height="160"></canvas></div>
+<p><small>Live-Wellenform. Sprich eine Frage, warte in Stille und wiederhole das Experiment ohne Fragen als Kontrolle.</small></p>
+<div id="result"></div>
+<p><small>Datenschutz: Die Aufnahme bleibt auf deinem Gerät. Es findet kein Upload statt. Die heruntergeladene WAV-Datei enthält unbearbeitete Mikrofon-Samples (16 Bit PCM).</small></p>
+</main><script>
+let ctx,source,processor,stream,blocks=[],sampleRate=0,recording=false,raf;
+const start=document.getElementById('start'),stop=document.getElementById('stop'),status=document.getElementById('status'),canvas=document.getElementById('scope'),g=canvas.getContext('2d');
+function draw(data){g.fillStyle='#030712';g.fillRect(0,0,600,160);g.strokeStyle='#6ee7b7';g.beginPath();for(let x=0;x<600;x++){let y=80+(data[Math.floor(x*data.length/600)]||0)*65;if(x===0)g.moveTo(x,y);else g.lineTo(x,y)}g.stroke()}
+start.onclick=async()=>{try{
+stream=await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:false,noiseSuppression:false,autoGainControl:false}});
+ctx=new (window.AudioContext||window.webkitAudioContext)();await ctx.resume();sampleRate=ctx.sampleRate;
+source=ctx.createMediaStreamSource(stream);processor=ctx.createScriptProcessor(4096,1,1);
+blocks=[];recording=true;
+processor.onaudioprocess=e=>{if(!recording)return;let samples=e.inputBuffer.getChannelData(0);blocks.push(new Float32Array(samples));draw(samples);e.outputBuffer.getChannelData(0).fill(0)};
+source.connect(processor);processor.connect(ctx.destination);
+start.disabled=true;stop.disabled=false;status.textContent='Aufnahme läuft – '+sampleRate+' Hz';document.getElementById('result').innerHTML='';
+}catch(e){status.textContent='Mikrofon nicht verfügbar: '+e.message+' (HTTPS und Mikrofonfreigabe prüfen).'}};
+stop.onclick=async()=>{recording=false;processor.disconnect();source.disconnect();stream.getTracks().forEach(t=>t.stop());await ctx.close();start.disabled=false;stop.disabled=true;
+let n=blocks.reduce((s,b)=>s+b.length,0),bytes=new ArrayBuffer(44+n*2),v=new DataView(bytes);
+function str(p,s){for(let i=0;i<s.length;i++)v.setUint8(p+i,s.charCodeAt(i))}
+str(0,'RIFF');v.setUint32(4,36+n*2,true);str(8,'WAVE');str(12,'fmt ');v.setUint32(16,16,true);v.setUint16(20,1,true);v.setUint16(22,1,true);v.setUint32(24,sampleRate,true);v.setUint32(28,sampleRate*2,true);v.setUint16(32,2,true);v.setUint16(34,16,true);str(36,'data');v.setUint32(40,n*2,true);
+let p=44;for(const block of blocks)for(const s of block){let x=Math.max(-1,Math.min(1,s));v.setInt16(p,x<0?x*32768:x*32767,true);p+=2}
+const blob=new Blob([bytes],{type:'audio/wav'}),url=URL.createObjectURL(blob);
+let div=document.getElementById('result');div.innerHTML='';let audio=document.createElement('audio');audio.controls=true;audio.src=url;div.append(audio);let a=document.createElement('a');a.href=url;a.download='evp-aufnahme-'+new Date().toISOString().replace(/[:.]/g,'-')+'.wav';a.textContent='⬇ WAV-Aufnahme speichern';div.append(document.createElement('p'),a);status.textContent='Aufnahme beendet: '+(n/sampleRate).toFixed(1)+' Sekunden.'};
+</script></body></html>
